@@ -42,17 +42,16 @@ func main() {
 	ctx := context.Background()
 	apiCli, _ := client.NewClientWithOpts(client.WithHost("tcp://master1g7.cs.cn-shenzhen.aliyuncs.com:20033"), client.WithTLSClientConfig("/Users/moclaf/.acs/certs/api/ca.pem", "/Users/moclaf/.acs/certs/api/cert.pem", "/Users/moclaf/.acs/certs/api/key.pem"))
 	asyncCli, _ := client.NewClientWithOpts(client.WithHost("tcp://master1g7.cs.cn-shenzhen.aliyuncs.com:20004"), client.WithTLSClientConfig("/Users/moclaf/.acs/certs/async/ca.pem", "/Users/moclaf/.acs/certs/async/cert.pem", "/Users/moclaf/.acs/certs/async/key.pem"))
-	indiaCli, _ := client.NewClientWithOpts(client.WithHost("tcp://master1g7.cs.cn-shenzhen.aliyuncs.com:20025"), client.WithTLSClientConfig("/Users/moclaf/.acs/certs/prod/ca.pem", "/Users/moclaf/.acs/certs/prod/cert.pem", "/Users/moclaf/.acs/certs/prodcat/key.pem"))
+	indiaCli, _ := client.NewClientWithOpts(client.WithHost("tcp://master1g7.cs.cn-shenzhen.aliyuncs.com:20025"), client.WithTLSClientConfig("/Users/moclaf/.acs/certs/prod/ca.pem", "/Users/moclaf/.acs/certs/prod/cert.pem", "/Users/moclaf/.acs/certs/prod/key.pem"))
 
 	clis := map[string]*client.Client{
-		"api": apiCli,
+		"api":   apiCli,
 		"async": asyncCli,
 		"india": indiaCli,
 	}
 
-
-	time_interval, _ := strconv.Atoi("1")
-	ticker := time.NewTicker(time.Minute * time.Duration(time_interval))
+	time_interval, _ := strconv.Atoi("5")
+	ticker := time.NewTicker(time.Second * time.Duration(time_interval))
 
 	go func() {
 		for _ = range ticker.C {
@@ -82,7 +81,6 @@ func getcontainerlist(client *client.Client, ctx context.Context) []types.Contai
 		Size: true,
 		All:  true,
 	})
-	log.Println("get healthy check")
 	return res
 }
 
@@ -101,7 +99,7 @@ func echo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer c.Close()
-	sc := &SocketClient{Online: true, RemoteAddr: c.RemoteAddr(), clientMes: make(chan []ContainerStatus, 5)}
+	sc := &SocketClient{Online: true, RemoteAddr: c.RemoteAddr(), clientMes: make(chan []ContainerStatus, 5), ClusterID: "api"}
 	clientConns[c] = sc
 	log.Println(clientConns[c].RemoteAddr, "has connected")
 	go getClientOnlineStatus(*c, sc)
@@ -124,8 +122,12 @@ func getClientOnlineStatus(c websocket.Conn, sc *SocketClient) {
 			log.Println(sc.RemoteAddr, "has disconnected")
 			c.Close()
 			break
-		}else {
-			sc.ClusterID = string(req)
+		} else {
+			if len(req) == 64 {
+			} else {
+				sc.ClusterID = string(req)
+			}
+
 		}
 	}
 }
