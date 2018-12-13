@@ -88,7 +88,7 @@ func getcontainerlist(client *client.Client, ctx context.Context) []types.Contai
 //	http.ServeFile(w, r, "./index.html")
 //}
 
-func dockerlog() {
+func getdockerlogs(cli *client.Client, containerID string) {
 
 }
 
