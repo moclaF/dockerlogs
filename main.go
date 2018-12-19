@@ -12,7 +12,7 @@ import (
 	"net/http"
 	"net"
 	"strings"
-	"io"
+	"bufio"
 )
 
 type ContainerStatus struct {
@@ -33,7 +33,7 @@ type SocketClient struct {
 	RemoteAddr net.Addr
 	ClusterID  string
 	clientMes  chan []ContainerStatus
-	logStream  chan []byte
+	logStream  chan string
 	ctnLogOpt  *ctnLogOpt
 }
 
@@ -59,7 +59,7 @@ func main() {
 
 	var ctx = context.Background()
 	logDelay, _ := time.ParseDuration("-10m")
-	time_interval, _ := strconv.Atoi("10")
+	time_interval, _ := strconv.Atoi("5")
 	ticker := time.NewTicker(time.Second * time.Duration(time_interval))
 
 	// push msg of cluster status to all client
@@ -125,18 +125,17 @@ func (sc *SocketClient) pushCtnLogs(clis map[string]*client.Client, ctx context.
 		return true, err
 	}
 	defer reader.Close()
-	m := make([]byte, 256)
-	for {
-		n, err := reader.Read(m)
-		if err != nil {
-			if err == io.EOF {
-				sc.logStream <- m[:n]
-			}
-			return true, err
+
+	scanner := bufio.NewScanner(reader)
+	scanner.Split(bufio.ScanLines)
+	for scanner.Scan() {
+		if len(scanner.Bytes()) > 7 {
+			sc.logStream <- scanner.Text()[8:]
+		} else {
+			sc.logStream <- scanner.Text()
 		}
-		log.Println(m[:n])
-		sc.logStream <- m[:n]
 	}
+	return true, nil
 }
 
 func echo(w http.ResponseWriter, r *http.Request) {
@@ -146,18 +145,18 @@ func echo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer c.Close()
-	sc := &SocketClient{Online: true, RemoteAddr: c.RemoteAddr(), clientMes: make(chan []ContainerStatus, 5), ClusterID: "api", logStream: make(chan []byte), ctnLogOpt:nil }
+	sc := &SocketClient{Online: true, RemoteAddr: c.RemoteAddr(), clientMes: make(chan []ContainerStatus), ClusterID: "api", logStream: make(chan string), ctnLogOpt: nil}
 	clientConns[c] = sc
 	log.Println(clientConns[c].RemoteAddr, "has connected")
 	go sc.getClientOnlineStatus(*c)
 	go func() {
 		for {
 			ctnLog := <-sc.logStream
-			log.Println(string(ctnLog))
-			err = c.WriteJSON(string(ctnLog))
+			err = c.WriteJSON(ctnLog)
 			if err != nil {
 				log.Println("write log error:", err)
 				sc.ctnLogOpt = nil
+				break
 			}
 		}
 	}()
@@ -173,7 +172,8 @@ func echo(w http.ResponseWriter, r *http.Request) {
 
 func (sc *SocketClient) getClientOnlineStatus(c websocket.Conn) {
 	for {
-		_, req, err := c.ReadMessage()
+		mt, req, err := c.ReadMessage()
+		log.Println(mt)
 		if err != nil {
 			sc.Online = false
 			log.Println("read:", err)
@@ -181,6 +181,7 @@ func (sc *SocketClient) getClientOnlineStatus(c websocket.Conn) {
 			c.Close()
 			break
 		} else {
+			log.Println(string(req))
 			if len(req) >= 64 {
 				sc.ctnLogOpt = &ctnLogOpt{
 					containerID: string(req),
