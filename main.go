@@ -65,6 +65,7 @@ func main() {
 	// push msg of cluster status to all client
 	go func() {
 		for _ = range ticker.C {
+			log.Println(clientConns)
 			for k, v := range clientConns {
 				go func() {
 					if !v.pushStatusMes(clis, ctx) {
@@ -92,7 +93,6 @@ func main() {
 }
 
 func (sc *SocketClient) pushStatusMes(clis map[string]*client.Client, ctx context.Context) bool {
-	log.Println("now is client", sc.RemoteAddr, sc.Online)
 	if sc.Online {
 		var message []ContainerStatus
 		for _, item := range getcontainerlist(clis[sc.ClusterID], ctx) {
@@ -115,6 +115,9 @@ func (sc *SocketClient) pushCtnLogs(clis map[string]*client.Client, ctx context.
 	if sc.ctnLogOpt == nil {
 		return false, nil
 	}
+	if sc.ctnLogOpt.logSwitch == false {
+		return false, nil
+	}
 	reader, err := clis[sc.ClusterID].ContainerLogs(ctx, sc.ctnLogOpt.containerID, types.ContainerLogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
@@ -125,10 +128,13 @@ func (sc *SocketClient) pushCtnLogs(clis map[string]*client.Client, ctx context.
 		return true, err
 	}
 	defer reader.Close()
-
+	sc.ctnLogOpt.logSwitch = false
 	scanner := bufio.NewScanner(reader)
 	scanner.Split(bufio.ScanLines)
 	for scanner.Scan() {
+		if sc.ctnLogOpt == nil {
+			break
+		}
 		if len(scanner.Bytes()) > 7 {
 			sc.logStream <- scanner.Text()[8:]
 		} else {
@@ -187,6 +193,9 @@ func (sc *SocketClient) getClientOnlineStatus(c websocket.Conn) {
 					containerID: string(req),
 					logSwitch:   true,
 				}
+			} else if string(req) == "stoplog" {
+				log.Println("stoplog")
+				sc.ctnLogOpt = nil
 			} else {
 				sc.ClusterID = string(req)
 			}
